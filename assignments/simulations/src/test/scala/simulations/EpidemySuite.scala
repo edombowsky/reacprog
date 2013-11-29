@@ -98,4 +98,10 @@ class EpidemySuite extends FunSuite {
 	  }
 	  assert(infectedTimes > 0, "A person should get infected according to the transmissibility rate when he moves into a room with an infectious person")
   }
+
+  // EMD
+  test("population"){
+    val es = new EpidemySimulator
+    assert(es.persons.size == es.SimConfig.population)
+  }
 }
