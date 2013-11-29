@@ -27,9 +27,16 @@ trait NodeScala {
    *
    *  @param exchange     the exchange used to write the response back
    *  @param token        the cancellation token for
-   *  @param body         the response to write back
+   *  @param response     the response to write back
    */
-  private def respond(exchange: Exchange, token: CancellationToken, response: Response): Unit = ???
+  // EMD
+  private def respond(exchange: Exchange, token: CancellationToken, response: Response): Unit = {
+    while (token.nonCancelled && response.hasNext) {
+      exchange.write(response.next())
+    }
+    // for( r <- response if token.nonCancelled) exchange.write(r)
+    exchange.close()
+  }
 
   /** A server:
    *  1) creates and starts an http listener
@@ -41,7 +48,34 @@ trait NodeScala {
    *  @param handler        a function mapping a request to a response
    *  @return               a subscription that can stop the server and all its asynchronous operations *entirely*.
    */
-  def start(relativePath: String)(handler: Request => Response): Subscription = ???
+  // EMD
+  def start(relativePath: String)(handler: Request => Response): Subscription = {
+    Future.run() { token =>
+      async {
+        val listener = createListener(relativePath)
+        val subscription = listener.start()
+        while(token.nonCancelled) {
+          val (request, exchange) = await(listener.nextRequest())
+          Future(respond(exchange, token, handler(request)))
+        }
+        subscription.unsubscribe()
+      }
+    }
+
+    // val listener = createListener(relativePath)
+    // val subscription = listener.start()
+
+    // val token = Future.run() { ctk =>
+    //   async {
+    //     while (!ctk.isCancelled) {
+    //       val (request, exchange) = await(listener.nextRequest())
+    //       respond(exchange, ctk, handler(request))
+    //     }
+    //   }
+    // }
+
+    // Subscription.apply(subscription, token)
+  }
 
 }
 
@@ -111,7 +145,16 @@ object NodeScala {
      *  @param relativePath    the relative path on which we want to listen to requests
      *  @return                the promise holding the pair of a request and an exchange object
      */
-    def nextRequest(): Future[(Request, Exchange)] = ???
+    // EMD
+    def nextRequest(): Future[(Request, Exchange)] = {
+      val promise = Promise[(Request, Exchange)]
+      createContext { exchange =>
+        promise.success((exchange.request, exchange))
+        // promise.complete(Success((exchange.request, exchange)))
+        removeContext()
+      }
+      promise.future
+    }
   }
 
   object Listener {
