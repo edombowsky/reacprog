@@ -54,6 +54,7 @@ trait SwingApi {
       * @param field the text field
       * @return an observable with a stream of text field updates
       */
+    // EMD
     def textValues: Observable[String] = {
       val subject = PublishSubject[String]("")
       field subscribe {
@@ -72,6 +73,7 @@ trait SwingApi {
      * @param field the button
      * @return an observable with a stream of buttons that have been clicked
      */
+    //EMD
     def clicks: Observable[Button] = {
       val subject = PublishSubject[Button](button)
       button subscribe {
