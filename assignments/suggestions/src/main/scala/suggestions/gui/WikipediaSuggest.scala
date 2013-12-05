@@ -82,11 +82,12 @@ object WikipediaSuggest extends SimpleSwingApplication with ConcreteSwingApi wit
 
     // TO IMPLEMENT
     // EMD
-    val searchTerms: Observable[String] = searchTermField.textValues
+    val searchTerms: Observable[String] = searchTermField.textValues.sanitized
 
     // TO IMPLEMENT
     // EMD
-    val suggestions: Observable[Try[List[String]]] = searchTerms.concatRecovered(wikiSuggestResponseStream(_))
+    val suggestions: Observable[Try[List[String]]] = searchTerms.flatMap(wikiSuggestResponseStream).recovered
+    // searchTerms.concatRecovered(wikiSuggestResponseStream(_))
 
 
     // TO IMPLEMENT
@@ -100,14 +101,16 @@ object WikipediaSuggest extends SimpleSwingApplication with ConcreteSwingApi wit
 
     // TO IMPLEMENT
     // EMD
-    val selections: Observable[String] = {
-      button.clicks.filter((b) =>
-        !suggestionList.selection.items.isEmpty).map( b => suggestionList.selection.items.head )
-    }
+    val selections: Observable[String] = button.clicks.map(a => suggestionList.selection.items.head)
+    // {
+    //   button.clicks.filter((b) =>
+    //     !suggestionList.selection.items.isEmpty).map(b => suggestionList.selection.items.head)
+    // }
 
     // TO IMPLEMENT
     // EMD
-    val pages: Observable[Try[String]] = selections.flatMap(wikiPageResponseStream(_).recovered)
+    val pages: Observable[Try[String]] = selections.flatMap(wikiPageResponseStream).recovered
+    // selections.flatMap(wikiPageResponseStream(_).recovered)
 
     // TO IMPLEMENT
     // EMD

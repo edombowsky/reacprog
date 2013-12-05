@@ -50,12 +50,13 @@ trait WikipediaApi {
      * E.g. `1, 2, 3, !Exception!` should become `Success(1), Success(2), Success(3), Failure(Exception), !TerminateStream!`
      */
     // EMD
-    def recovered: Observable[Try[T]] = Observable { observer =>
-      obs.subscribe(
-        item => observer.onNext(Success(item)),
-        error => observer.onNext(Failure(error)),
-        () => observer.onCompleted())
-    }
+    def recovered: Observable[Try[T]] = obs.map(v => Success(v)).onErrorReturn(e => Failure(e))
+    // Observable { observer =>
+    //   obs.subscribe(
+    //     item => observer.onNext(Success(item)),
+    //     error => observer.onNext(Failure(error)),
+    //     () => observer.onCompleted())
+    // }
 
     /** Emits the events from the `obs` observable, until `totalSec` seconds have elapsed.
      *
@@ -93,7 +94,7 @@ trait WikipediaApi {
      */
     // EMD
     def concatRecovered[S](requestMethod: T => Observable[S]): Observable[Try[S]] =
-      obs.flatMap { t => requestMethod(t).recovered }
+      obs.flatMap(t => requestMethod(t).recovered)
 
   }
 
