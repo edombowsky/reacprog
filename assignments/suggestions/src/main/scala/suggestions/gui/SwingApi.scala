@@ -55,11 +55,23 @@ trait SwingApi {
       * @return an observable with a stream of text field updates
       */
     // EMD
-    def textValues: Observable[String] = Observable { observer =>
-      val rx: Reaction = { case ValueChanged(x) => observer.onNext(x.text) }
-      field.subscribe(rx)
-      Subscription { field.unsubscribe(rx) }
+    def textValues: Observable[String] = {
+      Observable(observer => {
+        field subscribe {
+          case ValueChanged(tf) => observer.onNext(tf.text)
+        }
+        Subscription{}
+      })
     }
+
+    // method 2
+    // Observable { observer =>
+    //   val rx: Reaction = { case ValueChanged(x) => observer.onNext(x.text) }
+    //   field.subscribe(rx)
+    //   Subscription { field.unsubscribe(rx) }
+    // }
+
+    // method 1
     // {
     //   val subject = PublishSubject[String]("")
     //   field subscribe {
@@ -80,11 +92,23 @@ trait SwingApi {
      * @return an observable with a stream of buttons that have been clicked
      */
     //EMD
-    def clicks: Observable[Button] = Observable { observer =>
-      val rx: Reaction = { case ButtonClicked(x) => observer.onNext(x) }
-      button.subscribe(rx)
-      Subscription { button.unsubscribe(rx) }
+    def clicks: Observable[Button] = {
+      Observable(observer => {
+        button subscribe {
+          case ButtonClicked(bc) => observer.onNext(bc)
+        }
+        Subscription{}
+      })
     }
+
+    // method 2
+    // Observable { observer =>
+    //   val rx: Reaction = { case ButtonClicked(x) => observer.onNext(x) }
+    //   button.subscribe(rx)
+    //   Subscription { button.unsubscribe(rx) }
+    // }
+
+    // method 1
     // {
     //   val subject = PublishSubject[Button](button)
     //   button subscribe {

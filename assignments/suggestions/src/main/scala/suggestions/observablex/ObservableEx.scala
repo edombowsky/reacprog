@@ -8,6 +8,7 @@ import scala.util.Failure
 import java.lang.Throwable
 import rx.lang.scala.{Subject, Observable, Scheduler}
 import rx.lang.scala.subjects.ReplaySubject
+import rx.lang.scala.subscriptions.Subscription
 
 object ObservableEx {
 
@@ -19,13 +20,23 @@ object ObservableEx {
    */
   // EMD
   def apply[T](f: Future[T])(implicit execContext: ExecutionContext): Observable[T] = {
-    val subject = ReplaySubject[T]()
-    f.onComplete {
-      case Success(x) => subject.onNext(x); subject.onCompleted()
-      case Failure(e) => subject.onError(e)
+    Observable { observer =>
+      f onComplete {
+        case Success(value) => observer.onNext(value); observer.onCompleted()
+        case Failure(error) => observer.onError(error)
+      }
+      Subscription()
     }
-
-    subject
   }
+  // method 1
+  // {
+  //   val subject = ReplaySubject[T]()
+  //   f.onComplete {
+  //     case Success(x) => subject.onNext(x); subject.onCompleted()
+  //     case Failure(e) => subject.onError(e)
+  //   }
+
+  //   subject
+  // }
 
 }
