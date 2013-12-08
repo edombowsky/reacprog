@@ -5,6 +5,7 @@ package actorbintree
 
 import akka.actor._
 import scala.collection.immutable.Queue
+import akka.event.LoggingReceive
 
 object BinaryTreeSet {
 
@@ -66,14 +67,38 @@ class BinaryTreeSet extends Actor {
 
   // optional
   /** Accepts `Operation` and `GC` messages. */
-  val normal: Receive = { case _ => ??? }
+  // EMD
+  // val normal: Receive = { case _ => ??? }
+  val normal: Receive = {
+    case operation: Operation => root ! operation
+    
+    case GC =>
+      val newRoot = createRoot
+      context.become(garbageCollecting(newRoot))
+      root ! CopyTo(newRoot)
+  }
 
   // optional
   /** Handles messages while garbage collection is performed.
     * `newRoot` is the root of the new binary tree where we want to copy
     * all non-removed elements into.
     */
-  def garbageCollecting(newRoot: ActorRef): Receive = ???
+  // EMD
+  def garbageCollecting(newRoot: ActorRef): Receive = {
+    case operation: Operation => pendingQueue = pendingQueue.enqueue(operation)
+//    println("Operation during GC!!!", operation)
+    
+    case GC => // ignore GC calls
+    
+    case CopyFinished =>
+      context.stop(root)
+      root = newRoot
+      context.become(normal)
+      for (operation <- pendingQueue) {
+        self ! operation
+        pendingQueue = Queue.empty[Operation]
+      }
+  }
 
 }
 
@@ -101,12 +126,77 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
 
   // optional
   /** Handles `Operation` messages and `CopyTo` requests. */
-  val normal: Receive = { case _ => ??? }
+  // EMD
+  val normal: Receive = {
+    case insert@Insert(requester, id, value) =>
+      if (value < elem) handleInsert(Left, insert)
+      else if (value > elem) handleInsert(Right, insert)
+      else {
+        removed = false
+        requester ! OperationFinished(id)
+      }
+
+    case contains@Contains(requester, id, value) =>
+      if (value < elem) handleContains(Left, contains)
+      else if (value > elem) handleContains(Right, contains)
+      else requester ! ContainsResult(id, !removed)
+
+    case remove@Remove(requester, id, value) =>
+      if (value < elem) handleRemove(Left, remove)
+      else if (value > elem) handleRemove(Right, remove)
+      else {
+        removed = true
+        requester ! OperationFinished(id)
+      }
+      
+    case copy@CopyTo(newRoot) => 
+      val children = subtrees.values.toSet
+      if(children.isEmpty && removed) context.parent ! CopyFinished
+      else {
+        if (!removed) newRoot ! Insert(self, elem, elem)
+        children.foreach(_ ! copy)
+        context.become(copying(children, insertConfirmed = removed))
+      }
+  }
 
   // optional
   /** `expected` is the set of ActorRefs whose replies we are waiting for,
     * `insertConfirmed` tracks whether the copy of this node to the new tree has been confirmed.
     */
-  def copying(expected: Set[ActorRef], insertConfirmed: Boolean): Receive = ???
+  // EMD
+  def copying(expected: Set[ActorRef], insertConfirmed: Boolean): Receive = {
+    case OperationFinished(id) =>
+      if (expected.isEmpty) context.parent ! CopyFinished
+      context.become(copying(expected, insertConfirmed = true))
+
+    case CopyFinished =>
+      val newExpected = expected - sender
+      if (newExpected.isEmpty && insertConfirmed) context.parent ! CopyFinished
+      context.become(copying(newExpected, insertConfirmed))
+  }
+
+  // EMD
+  private def handleInsert(position: Position, insert: Insert) = subtrees.get(position) match {
+    case Some(actor) => actor ! insert
+
+    case None =>
+      subtrees += position -> context.actorOf(BinaryTreeNode.props(insert.elem, initiallyRemoved = false))
+      insert.requester ! OperationFinished(insert.id)
+  }
+
+  // EMD
+  private def handleContains(position: Position, contains: Contains) = subtrees.get(position) match {
+    case Some(actor) => actor ! contains
+
+    case None => contains.requester ! ContainsResult(contains.id, result = false)
+  }
+
+  // EMD
+  private def handleRemove(position: Position, remove: Remove) = subtrees.get(position) match {
+    case Some(actor) => actor ! remove
+    
+    case None => remove.requester ! OperationFinished(remove.id)
+  }
+
 
 }
