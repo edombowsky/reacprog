@@ -70,12 +70,13 @@ class BinaryTreeSet extends Actor {
   // EMD
   // val normal: Receive = { case _ => ??? }
   val normal: Receive = {
-    case operation: Operation => root ! operation
-    
+    case insert: Insert     => root ! insert
+    case contains: Contains => root ! contains
+    case remove: Remove     => root ! remove
     case GC =>
       val newRoot = createRoot
-      context.become(garbageCollecting(newRoot))
       root ! CopyTo(newRoot)
+      context.become(garbageCollecting(newRoot))
   }
 
   // optional
@@ -85,21 +86,18 @@ class BinaryTreeSet extends Actor {
     */
   // EMD
   def garbageCollecting(newRoot: ActorRef): Receive = {
-    case operation: Operation => pendingQueue = pendingQueue.enqueue(operation)
-//    println("Operation during GC!!!", operation)
-    
-    case GC => // ignore GC calls
-    
+    case operation: Operation => 
+      pendingQueue = pendingQueue :+ operation
     case CopyFinished =>
-      context.stop(root)
+      root ! PoisonPill
       root = newRoot
-      context.become(normal)
-      for (operation <- pendingQueue) {
-        self ! operation
-        pendingQueue = Queue.empty[Operation]
-      }
+      
+      pendingQueue.foreach(newRoot ! _)
+      pendingQueue = Queue.empty[Operation]
+      
+      context.unbecome()
+    case GC => // ignore
   }
-
 }
 
 object BinaryTreeNode {

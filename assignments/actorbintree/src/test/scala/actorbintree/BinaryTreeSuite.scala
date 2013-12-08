@@ -126,4 +126,22 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
     }
     receiveN(requester, ops, expectedReplies)
   }
+
+  // EMD
+  test("Test empty tree 'Contains'") {
+    val testNode = system.actorOf(BinaryTreeNode.props(0, true))
+
+    testNode ! Contains(testActor, id = 1, 0)
+    expectMsg(ContainsResult(1, false))
+  }
+  
+  // EMD
+  test("Test empty tree 'Insert'") {
+    val testNode = system.actorOf(BinaryTreeNode.props(0, true))
+
+    testNode ! Insert(testActor, id = 1, 42)
+    expectMsg(OperationFinished(1))
+    testNode ! Contains(testActor, id = 2, 42)
+    expectMsg(ContainsResult(2, true))
+  }
 }
