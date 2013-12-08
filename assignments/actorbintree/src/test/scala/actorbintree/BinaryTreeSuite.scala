@@ -171,4 +171,87 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
     topNode ! Contains(testActor, id = 7, 9)
     expectMsg(ContainsResult(7, false))
   }
+
+  // EMD
+ test("GC works well for predefined tree") {
+    val topNode = system.actorOf(Props[BinaryTreeSet])
+       
+    topNode ! Contains(testActor, id = 1, 1)
+    expectMsg(ContainsResult(1, false))
+      
+    topNode ! Insert(testActor, id = 2, 1)
+    topNode ! Contains(testActor, id = 3, 1)
+ 
+    expectMsg(OperationFinished(2))
+    expectMsg(ContainsResult(3, true))
+       
+    topNode ! Remove(testActor, id = 4, 1)
+    expectMsg(OperationFinished(4))
+       
+    topNode ! Contains(testActor, id = 5, 1)
+    expectMsg(ContainsResult(5, false))
+       
+    topNode ! Insert(testActor, id = 6, 10)
+    expectMsg(OperationFinished(6))
+      
+    topNode ! Insert(testActor, id = 7, 11)
+    topNode ! Remove(testActor, id = 8, 11)
+    expectMsg(OperationFinished(7))
+    expectMsg(OperationFinished(8))
+      
+    topNode ! GC
+       
+    topNode ! Contains(testActor, id = 9, 10)
+    expectMsg(ContainsResult(9, true))      
+   }
+
+  test("Simple instruction With GC"){
+    val topNode = system.actorOf(Props[BinaryTreeSet])
+ 
+    topNode ! GC
+    topNode ! Contains(testActor, id = 1, 1)
+    expectMsg(ContainsResult(1, false))
+ 
+    topNode ! GC
+ 
+    topNode ! Insert(testActor, id = 2, 2)
+    topNode ! Contains(testActor, id = 3, 2)
+ 
+    expectMsg(OperationFinished(2))
+    expectMsg(ContainsResult(3, true))
+ 
+    topNode ! Remove(testActor, id = 4, 1)
+ 
+    topNode ! GC
+ 
+    topNode ! Contains(testActor, id = 5, 1)
+ 
+    expectMsg(OperationFinished(4))
+    expectMsg(ContainsResult(5, false))
+  }
+
+  // EMD
+  test("inserting element that have beed removed") {
+    val requester = TestProbe()
+    val requesterRef = requester.ref
+    val ops = List(
+      Insert(requesterRef, id=10, 1),
+      Contains(requesterRef, id=20, 1),
+      Remove(requesterRef, id=30, 1),
+      Contains(requesterRef, id=40, 1),
+      Insert(requesterRef, id=50, 1),
+      Contains(requesterRef, id=60, 1)
+    )
+ 
+    val expectedReplies = List(
+      OperationFinished(id=10),
+      ContainsResult(id=20, true),
+      OperationFinished(id=30),
+      ContainsResult(id=40, false),
+      OperationFinished(id=50),
+      ContainsResult(id=60, true)
+    )
+ 
+    verify(requester, ops, expectedReplies)
+  }
 }
