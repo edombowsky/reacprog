@@ -205,6 +205,7 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
     expectMsg(ContainsResult(9, true))      
    }
 
+   // EMD
   test("Simple instruction With GC"){
     val topNode = system.actorOf(Props[BinaryTreeSet])
  
