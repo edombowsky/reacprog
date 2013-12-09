@@ -134,7 +134,7 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
     testNode ! Contains(testActor, id = 1, 0)
     expectMsg(ContainsResult(1, false))
   }
-  
+
   // EMD
   test("Test empty tree 'Insert'") {
     val testNode = system.actorOf(BinaryTreeNode.props(0, true))
@@ -147,27 +147,27 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
 
   test("GC does not break tree semantics") {
     val topNode = system.actorOf(Props[BinaryTreeSet])
- 
+
     topNode ! Insert(testActor, id = 1, 5)
     expectMsg(OperationFinished(1))
- 
+
     topNode ! Insert(testActor, id = 2, 4)
     expectMsg(OperationFinished(2))
- 
+
     topNode ! Insert(testActor, id = 3, 6)
     expectMsg(OperationFinished(3))
- 
+
     topNode ! GC
- 
+
     topNode ! Contains(testActor, id = 4, 5)
     expectMsg(ContainsResult(4, true))
- 
+
     topNode ! Contains(testActor, id = 5, 4)
     expectMsg(ContainsResult(5, true))
- 
+
     topNode ! Contains(testActor, id = 6, 6)
     expectMsg(ContainsResult(6, true))
- 
+
     topNode ! Contains(testActor, id = 7, 9)
     expectMsg(ContainsResult(7, false))
   }
@@ -175,58 +175,58 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
   // EMD
  test("GC works well for predefined tree") {
     val topNode = system.actorOf(Props[BinaryTreeSet])
-       
+
     topNode ! Contains(testActor, id = 1, 1)
     expectMsg(ContainsResult(1, false))
-      
+
     topNode ! Insert(testActor, id = 2, 1)
     topNode ! Contains(testActor, id = 3, 1)
- 
+
     expectMsg(OperationFinished(2))
     expectMsg(ContainsResult(3, true))
-       
+
     topNode ! Remove(testActor, id = 4, 1)
     expectMsg(OperationFinished(4))
-       
+
     topNode ! Contains(testActor, id = 5, 1)
     expectMsg(ContainsResult(5, false))
-       
+
     topNode ! Insert(testActor, id = 6, 10)
     expectMsg(OperationFinished(6))
-      
+
     topNode ! Insert(testActor, id = 7, 11)
     topNode ! Remove(testActor, id = 8, 11)
     expectMsg(OperationFinished(7))
     expectMsg(OperationFinished(8))
-      
+
     topNode ! GC
-       
+
     topNode ! Contains(testActor, id = 9, 10)
-    expectMsg(ContainsResult(9, true))      
+    expectMsg(ContainsResult(9, true))
    }
 
    // EMD
   test("Simple instruction With GC"){
     val topNode = system.actorOf(Props[BinaryTreeSet])
- 
+
     topNode ! GC
     topNode ! Contains(testActor, id = 1, 1)
     expectMsg(ContainsResult(1, false))
- 
+
     topNode ! GC
- 
+
     topNode ! Insert(testActor, id = 2, 2)
     topNode ! Contains(testActor, id = 3, 2)
- 
+
     expectMsg(OperationFinished(2))
     expectMsg(ContainsResult(3, true))
- 
+
     topNode ! Remove(testActor, id = 4, 1)
- 
+
     topNode ! GC
- 
+
     topNode ! Contains(testActor, id = 5, 1)
- 
+
     expectMsg(OperationFinished(4))
     expectMsg(ContainsResult(5, false))
   }
@@ -243,7 +243,7 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
       Insert(requesterRef, id=50, 1),
       Contains(requesterRef, id=60, 1)
     )
- 
+
     val expectedReplies = List(
       OperationFinished(id=10),
       ContainsResult(id=20, true),
@@ -252,7 +252,7 @@ class BinaryTreeSuite(_system: ActorSystem) extends TestKit(_system) with FunSui
       OperationFinished(id=50),
       ContainsResult(id=60, true)
     )
- 
+
     verify(requester, ops, expectedReplies)
   }
 }
