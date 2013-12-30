@@ -51,9 +51,19 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     case JoinedSecondary ⇒ context.become(replica)
   }
 
-  /* TODO Behavior for  the leader role. */
+  // EMD
   val leader: Receive = {
-    case _ =>
+    case Insert(key, value, id) => {
+      kv += key -> value
+      sender ! OperationAck(id)
+    }
+    case Remove(key, id) => {
+      kv -= key
+      sender ! OperationAck(id)
+    }
+    case Get(key, id) => {
+      sender ! GetResult(key, kv.get(key), id)
+    }  
   }
 
   /* TODO Behavior for the replica role. */
@@ -61,4 +71,8 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     case _ =>
   }
 
+  // EMD
+  override def preStart(): Unit = {
+    arbiter ! Join
+  }
 }
