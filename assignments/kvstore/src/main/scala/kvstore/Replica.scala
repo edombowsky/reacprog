@@ -35,12 +35,9 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   import Replicator._
   import Persistence._
   import context.dispatcher
-
-  /*
-   * The contents of this actor is just a suggestion, you can implement it in any way you like.
-   */
   
   var kv = Map.empty[String, String]
+  var expectedSeqs = Map.empty[String, Long]
   // a map from secondary replicas to replicators
   var secondaries = Map.empty[ActorRef, ActorRef]
   // the current set of replicators
@@ -66,10 +63,33 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     }  
   }
 
-  /* TODO Behavior for the replica role. */
+  // EMD
   val replica: Receive = {
-    case _ =>
+    case Snapshot(key, value, seq) => {
+      val expected = expectedSeq(key)
+      if (seq == expected) update(key, value)
+      if (seq <= expected) {
+        expectedSeqs += key -> Math.max(seq  + 1, expected)
+        sender ! SnapshotAck(key, seq)
+      }
+    }
+    case Get(key, id) => {
+      sender ! GetResult(key, kv.get(key), id)
+    }
   }
+
+  // EMD
+  def update(key: String, value: Option[String]) {
+    if (value.isDefined) {
+      kv += key -> value.get
+    }
+    else {
+      kv -= key
+    }
+  }
+
+  // EMD
+  def expectedSeq(key: String): Long = expectedSeqs.get(key).getOrElse(0L)
 
   // EMD
   override def preStart(): Unit = {
