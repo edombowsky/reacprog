@@ -12,7 +12,6 @@ import akka.actor.PoisonPill
 import akka.actor.OneForOneStrategy
 import akka.actor.SupervisorStrategy
 import akka.util.Timeout
-import scala.language.postfixOps
 
 object Replica {
   sealed trait Operation {
@@ -36,81 +35,45 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   import Replicator._
   import Persistence._
   import context.dispatcher
+
+  /*
+   * The contents of this actor is just a suggestion, you can implement it in any way you like.
+   */
   
   var kv = Map.empty[String, String]
-  var expectedSeq = 0L
-
   // a map from secondary replicas to replicators
   var secondaries = Map.empty[ActorRef, ActorRef]
   // the current set of replicators
   var replicators = Set.empty[ActorRef]
 
-  var persistent: ActorRef = context.actorOf(persistenceProps)
- 
-  var persistenceAcks = Map.empty[Long, (ActorRef, Persist)]
+  // EMD
+  arbiter ! Join
 
   def receive = {
-    case JoinedPrimary   ⇒ context.become(leader)
-    case JoinedSecondary ⇒ context.become(replica)
+    case JoinedPrimary   => context.become(leader)
+    case JoinedSecondary => context.become(replica)
   }
 
-  // EMD
+  /* TODO Behavior for  the leader role. */
   val leader: Receive = {
-    case Insert(key, value, id) => {
-      kv += key -> value
+    case Get(key, id) =>
+      val valueOption = kv.get(key)
+      sender ! GetResult(key, valueOption, id)
+    case Insert(key, value, id) =>
+      kv += (key -> value)
       sender ! OperationAck(id)
-    }
-    case Remove(key, id) => {
+    case Remove(key, id) =>
       kv -= key
       sender ! OperationAck(id)
-    }
-    case Get(key, id) => {
-      sender ! GetResult(key, kv.get(key), id)
-    }  
   }
 
+  /* TODO Behavior for the replica role. */
   // EMD
   val replica: Receive = {
-    case Snapshot(key, valueOption, seq) => {
-      if (seq == expectedSeq) {
-        expectedSeq += 1
-        update(key, valueOption)
-        persist(key, valueOption, seq)
-      } 
-      else if (seq < expectedSeq)
-      sender ! SnapshotAck(key, seq)
-    }
-    case Get(key, id) => {
-      sender ! GetResult(key, kv.get(key), id)
-    }
-    case Persisted(key, id) => {
-      persistenceAcks(id)._1 ! SnapshotAck(key, id)
-      persistenceAcks -= id
-    }
+    case Get(key, id) =>
+      val valueOption = kv.get(key)
+      sender ! GetResult(key, valueOption, id)
+    case _ =>
   }
 
-  // EMD
-  def persist( key: String, valueOption: Option[String], id: Long) {
-    val p = Persist(key, valueOption, id)
-    persistenceAcks += id -> (sender, p)
-    persistent ! p
-  }
-  
-  def update(key: String, valueOption: Option[String]) {
-    if (valueOption.isDefined)
-      kv += key -> valueOption.get
-    else
-     kv -= key
-  }
-
-  def repersist(): Unit = {
-    persistenceAcks.foreach {
-      case (id, (_, p)) => persistent ! p
-    }
-  }
-  // EMD
-  override def preStart(): Unit = {
-    arbiter ! Join
-    context.system.scheduler.schedule(0 milliseconds, 100 milliseconds)(repersist)
-  }
 }
