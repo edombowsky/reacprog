@@ -1,18 +1,17 @@
 package kvstore
 
-import akka.actor.{ OneForOneStrategy, Props, ActorRef, Actor }
+import akka.actor._
 import kvstore.Arbiter._
 import scala.collection.immutable.Queue
 import akka.actor.SupervisorStrategy.Restart
 import scala.annotation.tailrec
 import akka.pattern.{ ask, pipe }
-import akka.actor.Terminated
 import scala.concurrent.duration._
-import akka.actor.PoisonPill
-import akka.actor.OneForOneStrategy
-import akka.actor.SupervisorStrategy
 import akka.util.Timeout
 import scala.language.postfixOps
+import scala.Some
+import kvstore.Arbiter.Replicas
+import akka.event.LoggingReceive
 
 object Replica {
   sealed trait Operation {
@@ -48,75 +47,149 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   var replicators = Set.empty[ActorRef]
 
   var snapshotSeq = 0
-  var acks = Map.empty[Long, ActorRef]
+  var persistAcks = Map.empty[Long, ActorRef]
+  var replicateAcks = Map.empty[Long, (ActorRef, Set[ActorRef])]
+  var persistRepeaters = Map.empty[Long, Cancellable]
+  var failureGenerators = Map.empty[Long, Cancellable]
 
   arbiter ! Join
 
   val persistence = context.actorOf(persistenceProps)
 
-  def receive = {
+  def receive = LoggingReceive {
     case JoinedPrimary   => context.become(leader)
     case JoinedSecondary => context.become(replica)
   }
 
+  case class GenerateFailure(id: Long)
+
   /* TODO Behavior for  the leader role. */
-  val leader: Receive = {
+  val leader: Receive = LoggingReceive {
+
     case Get(key, id) =>
       val valueOption = kv.get(key)
       sender ! GetResult(key, valueOption, id)
 
     case Insert(key, value, id) =>
       kv += (key -> value)
-      acks += id -> sender
-      
-      def resendPersistence: Unit = {
-        if (acks.contains(id)) {
-          persistence ! Persist(key, Some(value), id)
-          context.system.scheduler.scheduleOnce(100 millis)(resendPersistence)
+      persistAcks += id -> sender
+
+      if (replicators.nonEmpty) {
+        replicateAcks += id -> (sender, replicators)
+        replicators.foreach { replicator =>
+          replicator ! Replicate(key, Some(value), id)
         }
       }
-      
-      resendPersistence
-      context.system.scheduler.scheduleOnce(1 second) {
-        if (acks.contains(id)) {
-          val sender = acks(id)
-          acks -= id
-          sender ! OperationFailed(id)
-        }
+
+      persistRepeaters += id -> context.system.scheduler.schedule(
+        0 millis, 100 millis, persistence, Persist(key, Some(value), id)
+      )
+
+      failureGenerators += id -> context.system.scheduler.scheduleOnce(1 second) {
+        self ! GenerateFailure(id)
       }
 
     case Remove(key, id) =>
       kv -= key
-      acks += id -> sender
-      
-      def resendPersistence: Unit = {
-        if (acks.contains(id)) {
-          persistence ! Persist(key, None, id)
-          context.system.scheduler.scheduleOnce(100 millis)(resendPersistence)
+      persistAcks += id -> sender
+
+      if (replicators.nonEmpty) {
+        replicateAcks += id -> (sender, replicators)
+        replicators.foreach { replicator =>
+          replicator ! Replicate(key, None, id)
         }
       }
-      
-      resendPersistence
-      context.system.scheduler.scheduleOnce(1 second) {
-        if(acks.contains(id)) {
-          val sender = acks(id)
-          acks -= id
-          sender ! OperationFailed(id)
-        }
+
+      persistRepeaters += id -> context.system.scheduler.schedule(
+        0 millis, 100 millis, persistence, Persist(key, None, id)
+      )
+
+      failureGenerators += id -> context.system.scheduler.scheduleOnce(1 second) {
+        self ! GenerateFailure(id)
       }
 
     case Persisted(key, id) =>
-      val sender = acks(id)
-      acks -= id
-      sender ! OperationAck(id)
+      persistRepeaters(id).cancel()
+      persistRepeaters -= id
+      val origSender = persistAcks(id)
+      persistAcks -= id
+      if (!replicateAcks.contains(id)) {
+        failureGenerators(id).cancel()
+        failureGenerators -= id
+        origSender ! OperationAck(id)
+      }
+
+    case Replicated(key, id) =>
+      if (replicateAcks.contains(id)) {
+        val (origSender, currAckSet) = replicateAcks(id)
+        val newAckSet = currAckSet - sender
+        if (newAckSet.isEmpty)
+          replicateAcks -= id
+        else
+          replicateAcks = replicateAcks.updated(id, (origSender, newAckSet))
+        if (!replicateAcks.contains(id) && !persistAcks.contains(id)) {
+          failureGenerators(id).cancel()
+          failureGenerators -= id
+          origSender ! OperationAck(id)
+        }
+      }
+
+    case GenerateFailure(id) =>
+      if (failureGenerators.contains(id)) {
+        if (persistRepeaters.contains(id)) {
+          persistRepeaters(id).cancel()
+          persistRepeaters -= id
+        }
+        failureGenerators -= id
+        
+        val origSender =
+          if (persistAcks.contains(id)) persistAcks(id)
+          else replicateAcks(id)._1
+        persistAcks -= id
+        replicateAcks -= id
+        origSender ! OperationFailed(id)
+      }
+
+    case Replicas(replicas) =>
+      val secondaryReplicas = replicas.filterNot(_ == self)
+      val removed = secondaries.keySet -- secondaryReplicas
+      val added = secondaryReplicas -- secondaries.keySet
+
+      var addedSecondaries = Map.empty[ActorRef, ActorRef]
+      val addedReplicators = added.map { replica =>
+        val replicator = context.actorOf(Replicator.props(replica))
+        addedSecondaries += replica -> replicator
+        replicator
+      }
+
+      removed.foreach( replica => secondaries(replica) ! PoisonPill )
+
+      removed.foreach { replica =>
+        replicateAcks.foreach { case (id, (origSender, rs)) =>
+          if (rs.contains(secondaries(replica))) {
+            self.tell(Replicated("", id), secondaries(replica))
+          }
+        }
+      }
+
+      replicators = replicators -- removed.map(secondaries) ++ addedReplicators
+      secondaries = secondaries -- removed ++ addedSecondaries
+
+      addedReplicators.foreach { replicator =>
+        kv.zipWithIndex.foreach { case ((k,v), idx) =>
+          replicator ! Replicate(k, Some(v), idx)
+        }
+      }
+
   }
 
   /* TODO Behavior for the replica role. */
-  val replica: Receive = {
+  val replica: Receive = LoggingReceive {
+
     case Get(key, id) =>
       val valueOption = kv.get(key)
       sender ! GetResult(key, valueOption, id)
-    
+
     case Snapshot(key, valueOption, seq) =>
       if (seq < snapshotSeq)
         sender ! SnapshotAck(key, seq)
@@ -127,20 +200,19 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
           case Some(value) => kv += key -> value
         }
         snapshotSeq += 1
-        acks += seq -> sender
-        def resendPersist: Unit = {
-          if (acks.contains(seq)) {
-            persistence ! Persist(key, valueOption, seq)
-            context.system.scheduler.scheduleOnce(100 millis)(resendPersist)
-          }
-        }
-        resendPersist
+        persistAcks += seq -> sender
+
+        persistRepeaters += seq -> context.system.scheduler.schedule(
+          0 millis, 100 millis, persistence, Persist(key, valueOption, seq)
+        )
       }
-    
+
     case Persisted(key, id) =>
-       val sender = acks(id)
-       acks -= id
-       sender ! SnapshotAck(key, id)
+      val sender = persistAcks(id)
+      persistAcks -= id
+      persistRepeaters(id).cancel()
+      persistRepeaters -= id
+      sender ! SnapshotAck(key, id)
 
 
   }
