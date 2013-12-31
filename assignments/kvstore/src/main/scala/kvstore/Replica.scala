@@ -46,8 +46,9 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   // the current set of replicators
   var replicators = Set.empty[ActorRef]
 
-  // EMD
   arbiter ! Join
+
+  val persistence = context.actorOf(persistenceProps)
 
   def receive = {
     case JoinedPrimary   => context.become(leader)
@@ -67,13 +68,34 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       sender ! OperationAck(id)
   }
 
+  var snapshotSeq = 0
+  var acks = Map.empty[Long, ActorRef]
+
   /* TODO Behavior for the replica role. */
-  // EMD
   val replica: Receive = {
     case Get(key, id) =>
       val valueOption = kv.get(key)
       sender ! GetResult(key, valueOption, id)
-    case _ =>
+    case Snapshot(key, valueOption, seq) =>
+      if (seq < snapshotSeq)
+        sender ! SnapshotAck(key, seq)
+
+      if (seq == snapshotSeq) {
+        valueOption match {
+          case None => kv -= key
+          case Some(value) => kv += key -> value
+        }
+        snapshotSeq += 1
+        acks += seq -> sender
+        persistence ! Persist(key, valueOption, seq)
+      }
+
+    case Persisted(key, id) =>
+       val sender = acks(id)
+       acks -= id
+       sender ! SnapshotAck(key, id)
+
+
   }
 
 }
